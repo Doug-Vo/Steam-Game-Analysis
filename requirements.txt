@@ -2,3 +2,4 @@ request
 pymongo
 
 colorama
+tqdm
