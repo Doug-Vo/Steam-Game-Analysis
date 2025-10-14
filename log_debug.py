@@ -1,7 +1,7 @@
 import colorama
 import os
 import logging
-from pymongo import MongoClient
+
 
 
 colorama.init(autoreset= True)
