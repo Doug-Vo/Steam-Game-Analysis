@@ -11,14 +11,18 @@ Its purpose is to:
 # --- IMPORTS ---
 import os
 import sys
-import requests
 import re
-import log_debug
 from pymongo import MongoClient
 from tqdm import tqdm
 
 # Imports the custom logger
+from api_clients.steam_api_clients import get_steamspy_game, fetch_steam_reviews
 from log_debug import logging
+from pymongo.operations import UpdateOne
+import time 
+import random
+from concurrent.futures import ThreadPoolExecutor
+
 
 # --- CONFIGURATION & SETUP ---
 
@@ -27,9 +31,13 @@ MONGO_URI = os.environ.get('MONGO_URI')
 client = MongoClient(MONGO_URI)
 
 DB_NAME = "steam_games"
-COLLECTION_NAME = "game_infos"
+GAME_COLLECTION = "game_infos"
+REVIEW_COLLECTION = "reviews"
 
-collection = client[DB_NAME][COLLECTION_NAME]
+MAX_WORKERS = 15
+
+game_collection = client[DB_NAME][GAME_COLLECTION]
+review_collection = client[DB_NAME][REVIEW_COLLECTION]
 
 STEAMSPY_API_URL = "https://steamspy.com/api.php?request=all"
 
@@ -42,25 +50,27 @@ except Exception as e:
     sys.exit(1)
 
 
-# --- DATA FETCHING FUNCTION ---
-def get_steamspy_game():
-    """Fetches the complete game dataset from the SteamSpy API."""
+def process_review(app_id):
     try:
-        logging.info("Attempting to retrieve data from SteamSpy...")
-        response = requests.get(STEAMSPY_API_URL)
-        # This will automatically raise an error if the API returns a bad status (e.g., 404, 503).
-        response.raise_for_status()
-        logging.info("Retrieve data from SteamSpy SUCCESSFULLY!")
-        return response.json()
+        reviews = fetch_steam_reviews(app_id)
+        if reviews:
+            bulk_op = []
+            for single_review in reviews:
+                query = {"recommendationid" : single_review["recommendationid"]}
+                operation = {"$set": single_review}
+                bulk_op.append(UpdateOne(query, operation, upsert= True))
+
+            if bulk_op:
+                review_collection.bulk_write(bulk_op)
     except Exception as e:
-        logging.error(f"Error! Unable to retrieve data from SteamSpy: {e}")
-        return None
+        logging.error(f"ERROR, Unable to load {single_review} : {e}")
+    return 
 
 
 # --- MAIN EXECUTION BLOCK ---
 if __name__ == "__main__":
     # Step 1: Fetch the master list of all games.
-    all_games_data = get_steamspy_game()
+    all_games_data = get_steamspy_game(STEAMSPY_API_URL)
 
     # Proceeds only if the API call was successful.
     if all_games_data:
@@ -109,17 +119,31 @@ if __name__ == "__main__":
                     "discount_percent": info_dict.get("discount"),
                     "concurrent_users": info_dict.get("ccu"),
                 }
-                
+
                 # --- Step 5: Upsert the document into the database ---
                 filter_query = {"_id": app_id}
                 update_operation = {"$set": game_document}
 
                 # If a document with this _id exists, it will be updated.
                 # If not, it will be inserted as a new document.
-                collection.update_one(filter_query, update_operation, upsert=True)
+                game_collection.update_one(filter_query, update_operation, upsert=True)
 
             except Exception as e:
                 logging.error(f"Unable to process {app_id}: {info_dict.get('name')}. Error: {e}")
                 continue
-        
+
+
+
         logging.info("--- COMPLETE LOADING GAME INFO ---")
+        logging.info("--- BEGIN TO COLLECT GAME REVIEWS ---")
+
+        
+        app_ids = []
+
+        for app_info, info_dict in all_games_data.items():
+                app_ids.append(int(app_info))
+        
+        with ThreadPoolExecutor(max_workers= MAX_WORKERS) as executor:
+            list(tqdm(executor.map(process_review, app_ids), total=len(app_ids), desc= "Processing..."))
+            
+        logging.info("--- COMPLETE LOADING GAME REVIEWS ---")
