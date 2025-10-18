@@ -64,10 +64,9 @@ def fetch_steam_reviews(appid, num_reviews_target=1000, months_to_fetch=3):
                 break
             
             cursor = next_cursor
-            #time.sleep(1)
+            time.sleep(1)
 
         except requests.exceptions.RequestException as e:
             logging.error(f"HTTP Error while fetching reviews for AppID {appid}: {e}")
             break
-    logging.info(f"Game {appid} retrieves {len(reviews_collected)} ")
     return reviews_collected
