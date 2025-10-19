@@ -17,7 +17,7 @@ from tqdm import tqdm
 
 # Imports the custom logger
 from api_clients.steam_api_clients import get_steamspy_game, fetch_steam_reviews
-from log_debug import logging
+from utility.log_debug import logging
 from pymongo.operations import UpdateOne
 import time 
 import random
