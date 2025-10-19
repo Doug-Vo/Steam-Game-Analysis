@@ -1,5 +1,5 @@
 import requests
-from log_debug import logging
+from utility.log_debug import logging
 
 
 # --- DATA FETCHING FUNCTION ---
